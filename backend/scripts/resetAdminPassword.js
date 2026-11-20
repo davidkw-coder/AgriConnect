@@ -1,5 +1,5 @@
 require('../config/env').validateEnvironment();
-const { pool } = require('../config/database');
+const { pool } = require('../config/legacyDatabase');
 const { hashPassword, isStrongPassword } = require('../utils/password');
 
 (async () => {

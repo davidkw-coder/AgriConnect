@@ -1,7 +1,7 @@
 const userModel = require('../models/userModel');
 const { isStrongPassword, hashPassword, comparePassword, generateTemporaryPassword } = require('../utils/password');
 const { signToken, tokenIdHash } = require('../utils/token');
-const { pool } = require('../config/database');
+const prisma = require('../config/prisma');
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_PATTERN = /^(?:\+?2507\d{8}|07\d{8})$/;
@@ -62,7 +62,7 @@ async function createAccount(req, res, role, allowRoleSelection = false) {
       if (generatedPassword) data.credentials = { email, temporaryPassword: initialPassword };
       return res.status(201).json({ success: true, message: 'Account created. The user must change the temporary password at first login.', data });
     } catch (error) {
-      if (error.code === 'ER_DUP_ENTRY') {
+      if (error.code === 'ER_DUP_ENTRY' || error.code === 'P2002') {
         const field = String(error.message).includes('phone') ? 'Phone number' : 'Email address';
         return res.status(409).json({ success: false, message: `${field} is already registered` });
       }
@@ -80,7 +80,7 @@ const registerSelectedRole = asyncHandler((req, res) => {
   const selectedRole = roleValues.length ? String(roleValues[0]).trim().toUpperCase() : '';
   if (!selectedRole || !['FARMER', 'BUYER'].includes(selectedRole)
       || roleValues.some((value) => String(value).trim().toUpperCase() !== selectedRole)) {
-    return res.status(400).json({ success: false, message: 'For public registration, role must be FARMER or BUYER' });
+    return res.status(400).json({ success: false, message: 'role must be FARMER or BUYER' });
   }
   return createAccount(req, res, selectedRole, true);
 });
@@ -102,10 +102,14 @@ const login = asyncHandler(async (req, res) => {
 
 const logout = asyncHandler(async (req, res) => {
   const { jti, exp } = req.auth.claims;
-  await pool.execute('DELETE FROM revoked_tokens WHERE expires_at <= UTC_TIMESTAMP()');
-  await pool.execute(
-    'INSERT IGNORE INTO revoked_tokens (jti_hash, user_id, expires_at) VALUES (?, ?, FROM_UNIXTIME(?))',
-    [tokenIdHash(jti), req.user.id, exp]);
+  await prisma.$transaction([
+    prisma.revoked_tokens.deleteMany({ where: { expires_at: { lte: new Date() } } }),
+    prisma.revoked_tokens.upsert({
+      where: { jti_hash: tokenIdHash(jti) },
+      create: { jti_hash: tokenIdHash(jti), user_id: req.user.id, expires_at: new Date(exp * 1000) },
+      update: {},
+    }),
+  ]);
   return res.json({ success: true, message: 'Logout successful' });
 });
 

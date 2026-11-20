@@ -8,6 +8,9 @@ function validateEnvironment() {
   if (missing.length) {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }
+  if (Buffer.byteLength(process.env.JWT_SECRET, 'utf8') < 32) {
+    throw new Error('JWT_SECRET must contain at least 32 bytes of random secret data');
+  }
   const port = Number(process.env.PORT);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error('PORT must be an integer between 1 and 65535');

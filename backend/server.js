@@ -1,7 +1,8 @@
 require('./config/env').validateEnvironment();
 
 const app = require('./app');
-const { checkDatabaseConnection, pool } = require('./config/database');
+const { checkDatabaseConnection } = require('./config/database');
+const prisma = require('./config/prisma');
 const { port } = require('./config/env').validateEnvironment();
 
 const server = app.listen(port, () => {
@@ -19,7 +20,7 @@ server.on('error', (error) => {
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
     server.close(() => {
-      pool.end().finally(() => process.exit(0));
+      prisma.$disconnect().finally(() => process.exit(0));
     });
   });
 }

@@ -1,5 +1,5 @@
 require('../config/env').validateEnvironment();
-const { pool } = require('../config/database');
+const { pool } = require('../config/legacyDatabase');
 
 async function ensureRow(connection, table, idColumn, nameColumn, name, parentColumn, parentId, extra = {}) {
   const where = parentColumn ? `WHERE \`${parentColumn}\` = ? AND \`${nameColumn}\` = ?` : `WHERE \`${nameColumn}\` = ?`;
