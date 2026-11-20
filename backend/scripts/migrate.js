@@ -1,7 +1,7 @@
 require('../config/env').validateEnvironment();
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { pool } = require('../config/database');
+const { pool } = require('../config/legacyDatabase');
 
 (async () => {
   try {

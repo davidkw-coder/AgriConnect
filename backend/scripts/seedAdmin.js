@@ -1,5 +1,5 @@
 require('../config/env').validateEnvironment();
-const { pool } = require('../config/database');
+const { pool } = require('../config/legacyDatabase');
 const { hashPassword, isStrongPassword } = require('../utils/password');
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_PATTERN = /^(?:\+?2507\d{8}|07\d{8})$/;

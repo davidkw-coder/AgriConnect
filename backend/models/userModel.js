@@ -1,91 +1,128 @@
-const { pool } = require('../config/database');
+const prisma = require('../config/prisma');
 
-const publicSelect = `u.user_id AS id, u.full_name AS fullName, u.email,
-  u.phone_number AS phone, UPPER(r.role_name) AS role,
-  UPPER(u.account_status) AS status, u.token_version AS tokenVersion,
-  u.must_change_password AS mustChangePassword,
-  d.district_name AS district, v.village_name AS generalLocation`;
-const publicFrom = `FROM users u
-  JOIN roles r ON r.role_id = u.role_id
-  LEFT JOIN farmer_profiles fp ON fp.user_id = u.user_id
-  LEFT JOIN villages v ON v.village_id = fp.village_id
-  LEFT JOIN cells c ON c.cell_id = v.cell_id
-  LEFT JOIN sectors s ON s.sector_id = c.sector_id
-  LEFT JOIN districts d ON d.district_id = s.district_id`;
+function toPublicUser(user) {
+  if (!user) return null;
+  const village = user.farmer_profiles?.villages;
+  return {
+    id: user.user_id,
+    fullName: user.full_name,
+    email: user.email,
+    phone: user.phone_number,
+    role: user.roles.role_name.toUpperCase(),
+    status: user.account_status.toUpperCase(),
+    tokenVersion: user.token_version,
+    mustChangePassword: user.must_change_password,
+    ...(village ? {
+      district: village.cells.sectors.districts.district_name,
+      generalLocation: village.village_name,
+    } : {}),
+  };
+}
+
+const publicUserInclude = {
+  roles: { select: { role_name: true } },
+  farmer_profiles: {
+    select: {
+      villages: {
+        select: {
+          village_name: true,
+          cells: { select: { sectors: { select: { districts: { select: { district_name: true } } } } } },
+        },
+      },
+    },
+  },
+};
 
 async function findByEmail(email) {
-  const [rows] = await pool.execute(
-    `SELECT u.user_id AS id, u.full_name AS fullName, u.email,
-      u.phone_number AS phone, u.password_hash AS passwordHash,
-      UPPER(r.role_name) AS role, UPPER(u.account_status) AS status,
-      u.token_version AS tokenVersion, u.must_change_password AS mustChangePassword
-     FROM users u JOIN roles r ON r.role_id = u.role_id
-     WHERE LOWER(u.email) = ? LIMIT 1`, [email]);
-  return rows[0] || null;
+  const user = await prisma.users.findFirst({
+    where: { email: { equals: email } },
+    select: {
+      user_id: true,
+      full_name: true,
+      email: true,
+      phone_number: true,
+      password_hash: true,
+      account_status: true,
+      token_version: true,
+      must_change_password: true,
+      roles: { select: { role_name: true } },
+    },
+  });
+  if (!user) return null;
+  return {
+    id: user.user_id,
+    fullName: user.full_name,
+    email: user.email,
+    phone: user.phone_number,
+    passwordHash: user.password_hash,
+    role: user.roles.role_name.toUpperCase(),
+    status: user.account_status.toUpperCase(),
+    tokenVersion: user.token_version,
+    mustChangePassword: user.must_change_password,
+  };
 }
 
 async function findPublicById(id) {
-  const [rows] = await pool.execute(`SELECT ${publicSelect} ${publicFrom} WHERE u.user_id = ? LIMIT 1`, [id]);
-  return rows[0] || null;
+  const user = await prisma.users.findUnique({ where: { user_id: Number(id) }, include: publicUserInclude });
+  return toPublicUser(user);
 }
 
 async function findByIdWithPassword(id) {
-  const [rows] = await pool.execute(
-    'SELECT user_id AS id, email, password_hash AS passwordHash FROM users WHERE user_id = ? LIMIT 1', [id]);
-  return rows[0] || null;
+  const user = await prisma.users.findUnique({
+    where: { user_id: Number(id) },
+    select: { user_id: true, email: true, password_hash: true },
+  });
+  return user ? { id: user.user_id, email: user.email, passwordHash: user.password_hash } : null;
 }
 
 async function create({ fullName, email, phone, passwordHash, role, district, generalLocation, mustChangePassword = true }) {
-  const connection = await pool.getConnection();
-  let userId;
-  try {
-    await connection.beginTransaction();
-    const [roleRows] = await connection.execute(
-      'SELECT role_id FROM roles WHERE UPPER(role_name) = ? LIMIT 1', [role]);
-    if (!roleRows.length) throw Object.assign(new Error(`Role ${role} is not configured`), { status: 500 });
+  const userId = await prisma.$transaction(async (tx) => {
+    const roleRow = await tx.roles.findFirst({ where: { role_name: role.toLowerCase() }, select: { role_id: true } });
+    if (!roleRow) throw Object.assign(new Error(`Role ${role} is not configured`), { status: 500 });
 
-    let villageId = null;
+    let villageId;
     if (role === 'FARMER') {
-      const [villages] = await connection.execute(
-        `SELECT v.village_id AS villageId
-         FROM villages v
-         JOIN cells c ON c.cell_id = v.cell_id
-         JOIN sectors s ON s.sector_id = c.sector_id
-         JOIN districts d ON d.district_id = s.district_id
-         WHERE LOWER(d.district_name) = LOWER(?) AND LOWER(v.village_name) = LOWER(?)
-         LIMIT 1`, [district, generalLocation]);
-      if (!villages.length) {
+      const village = await tx.villages.findFirst({
+        where: {
+          village_name: generalLocation,
+          cells: { sectors: { districts: { district_name: district } } },
+        },
+        select: { village_id: true },
+      });
+      if (!village) {
         throw Object.assign(new Error('The supplied district and location must match a configured village'), { status: 400 });
       }
-      villageId = villages[0].villageId;
+      villageId = village.village_id;
     }
 
-    const [insert] = await connection.execute(
-      `INSERT INTO users (role_id, full_name, email, phone_number, password_hash, account_status, must_change_password)
-       VALUES (?, ?, ?, ?, ?, 'active', ?)`,
-      [roleRows[0].role_id, fullName, email, phone, passwordHash, mustChangePassword ? 1 : 0]);
-    userId = insert.insertId;
-
-    if (role === 'FARMER') {
-      await connection.execute('INSERT INTO farmer_profiles (user_id, village_id) VALUES (?, ?)', [userId, villageId]);
-    } else if (role === 'BUYER') {
-      await connection.execute('INSERT INTO buyer_profiles (user_id, telephone_number) VALUES (?, ?)', [userId, phone]);
-    }
-
-    await connection.commit();
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
+    const user = await tx.users.create({
+      data: {
+        role_id: roleRow.role_id,
+        full_name: fullName,
+        email,
+        phone_number: phone,
+        password_hash: passwordHash,
+        account_status: 'active',
+        must_change_password: mustChangePassword,
+        ...(role === 'FARMER' ? { farmer_profiles: { create: { village_id: villageId } } } : {}),
+        ...(role === 'BUYER' ? { buyer_profiles: { create: { telephone_number: phone } } } : {}),
+      },
+      select: { user_id: true },
+    });
+    return user.user_id;
+  });
   return findPublicById(userId);
 }
 
 async function changePassword(id, passwordHash) {
-  await pool.execute(
-    'UPDATE users SET password_hash = ?, token_version = token_version + 1, must_change_password = 0 WHERE user_id = ?',
-    [passwordHash, id]);
+  await prisma.users.update({
+    where: { user_id: Number(id) },
+    data: {
+      password_hash: passwordHash,
+      token_version: { increment: 1 },
+      must_change_password: false,
+    },
+  });
 }
 
 module.exports = { findByEmail, findPublicById, findByIdWithPassword, create, changePassword };

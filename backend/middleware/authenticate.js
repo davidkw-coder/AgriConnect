@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { pool } = require('../config/database');
+const prisma = require('../config/prisma');
 const { tokenIdHash } = require('../utils/token');
 
 async function authenticate(req, res, next) {
@@ -10,25 +10,29 @@ async function authenticate(req, res, next) {
   try {
     const claims = jwt.verify(match[1], process.env.JWT_SECRET);
     if (!claims.sub || !claims.jti) throw new Error('Invalid token');
-    const [revoked] = await pool.execute(
-      'SELECT 1 FROM revoked_tokens WHERE jti_hash = ? AND expires_at > UTC_TIMESTAMP() LIMIT 1',
-      [tokenIdHash(claims.jti)]);
-    if (revoked.length) return res.status(401).json({ success: false, message: 'Token is no longer valid' });
+    const revoked = await prisma.revoked_tokens.findFirst({
+      where: { jti_hash: tokenIdHash(claims.jti), expires_at: { gt: new Date() } },
+      select: { jti_hash: true },
+    });
+    if (revoked) return res.status(401).json({ success: false, message: 'Token is no longer valid' });
 
-    const [rows] = await pool.execute(
-      `SELECT u.user_id AS id, UPPER(r.role_name) AS role,
-        UPPER(u.account_status) AS status, u.token_version AS tokenVersion
-        , u.must_change_password AS mustChangePassword
-       FROM users u JOIN roles r ON r.role_id = u.role_id
-       WHERE u.user_id = ? LIMIT 1`, [claims.sub]);
-    const user = rows[0];
+    const user = await prisma.users.findUnique({
+      where: { user_id: Number(claims.sub) },
+      select: {
+        user_id: true,
+        token_version: true,
+        account_status: true,
+        must_change_password: true,
+        roles: { select: { role_name: true } },
+      },
+    });
     if (!user) return res.status(401).json({ success: false, message: 'Invalid authentication token' });
-    if (user.status !== 'ACTIVE') return res.status(403).json({ success: false, message: 'Account is suspended' });
-    if (claims.ver !== user.tokenVersion) return res.status(401).json({ success: false, message: 'Token is no longer valid' });
-    if (user.mustChangePassword && !(req.method === 'PUT' && req.path === '/change-password')) {
+    if (user.account_status !== 'active') return res.status(403).json({ success: false, message: 'Account is suspended' });
+    if (claims.ver !== user.token_version) return res.status(401).json({ success: false, message: 'Token is no longer valid' });
+    if (user.must_change_password && !(req.method === 'PUT' && req.path === '/change-password')) {
       return res.status(403).json({ success: false, message: 'Change your temporary password before using this account' });
     }
-    req.user = { id: user.id, role: user.role, mustChangePassword: Boolean(user.mustChangePassword) };
+    req.user = { id: user.user_id, role: user.roles.role_name.toUpperCase(), mustChangePassword: user.must_change_password };
     req.auth = { token: match[1], claims };
     return next();
   } catch (error) {

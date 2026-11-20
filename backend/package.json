@@ -12,9 +12,13 @@
     "migrate": "node scripts/migrate.js",
     "seed:admin": "node scripts/seedAdmin.js",
     "reset:admin-password": "node scripts/resetAdminPassword.js",
-    "seed:demo-data": "node scripts/seedDemoData.js"
+    "seed:demo-data": "node scripts/seedDemoData.js",
+    "prisma:generate": "node scripts/prismaCli.js generate",
+    "prisma:pull": "node scripts/prismaCli.js db pull",
+    "prisma:validate": "node scripts/prismaCli.js validate"
   },
   "dependencies": {
+    "@prisma/client": "^6.19.0",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^18.0.10",
@@ -23,6 +27,7 @@
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.12.1",
     "multer": "^2.5.0",
-    "mysql2": "^3.24.6"
+    "mysql2": "^3.24.6",
+    "prisma": "^6.19.0"
   }
 }

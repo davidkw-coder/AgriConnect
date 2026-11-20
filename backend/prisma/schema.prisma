@@ -1,0 +1,252 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model buyer_profiles {
+  buyer_id         Int      @id @default(autoincrement())
+  user_id          Int      @unique(map: "user_id")
+  telephone_number String?  @db.VarChar(20)
+  created_at       DateTime @default(now()) @db.Timestamp(0)
+  updated_at       DateTime @default(now()) @db.Timestamp(0)
+  users            users    @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_buyer_user")
+}
+
+model categories {
+  category_id   Int        @id @default(autoincrement())
+  category_name String     @unique(map: "category_name") @db.VarChar(100)
+  description   String?    @db.Text
+  products      products[]
+}
+
+model cells {
+  cell_id   Int        @id @default(autoincrement())
+  sector_id Int
+  cell_name String     @db.VarChar(100)
+  sectors   sectors    @relation(fields: [sector_id], references: [sector_id], map: "fk_cells_sectors")
+  villages  villages[]
+
+  @@unique([sector_id, cell_name], map: "sector_id")
+}
+
+model districts {
+  district_id   Int       @id @default(autoincrement())
+  district_name String    @unique(map: "district_name") @db.VarChar(100)
+  sectors       sectors[]
+}
+
+model farmer_profiles {
+  farmer_id         Int                 @id @default(autoincrement())
+  user_id           Int                 @unique(map: "user_id")
+  village_id        Int
+  farm_description  String?             @db.Text
+  created_at        DateTime            @default(now()) @db.Timestamp(0)
+  updated_at        DateTime            @default(now()) @db.Timestamp(0)
+  users             users               @relation(fields: [user_id], references: [user_id], onDelete: Cascade, map: "fk_farmer_user")
+  villages          villages            @relation(fields: [village_id], references: [village_id], map: "fk_farmer_village")
+  inquiry_responses inquiry_responses[]
+  products          products[]
+
+  @@index([village_id], map: "fk_farmer_village")
+}
+
+model inquiries {
+  inquiry_id         Int                      @id @default(autoincrement())
+  product_id         Int
+  buyer_id           Int
+  requested_quantity Decimal                  @db.Decimal(12, 2)
+  message            String?                  @db.Text
+  inquiry_status     inquiries_inquiry_status @default(pending)
+  created_at         DateTime                 @default(now()) @db.Timestamp(0)
+  users              users                    @relation(fields: [buyer_id], references: [user_id], map: "fk_inquiries_buyer")
+  products           products                 @relation(fields: [product_id], references: [product_id], map: "fk_inquiries_product")
+  inquiry_responses  inquiry_responses[]
+
+  @@index([buyer_id], map: "fk_inquiries_buyer")
+  @@index([product_id], map: "fk_inquiries_product")
+  @@index([inquiry_status], map: "idx_inquiry_status")
+}
+
+model inquiry_responses {
+  response_id      Int                             @id @default(autoincrement())
+  inquiry_id       Int
+  farmer_id        Int
+  response_message String                          @db.Text
+  response_type    inquiry_responses_response_type @default(message)
+  responded_at     DateTime                        @default(now()) @db.Timestamp(0)
+  farmer_profiles  farmer_profiles                 @relation(fields: [farmer_id], references: [farmer_id], map: "fk_responses_farmer")
+  inquiries        inquiries                       @relation(fields: [inquiry_id], references: [inquiry_id], onDelete: Cascade, map: "fk_responses_inquiry")
+
+  @@index([farmer_id], map: "fk_responses_farmer")
+  @@index([inquiry_id], map: "fk_responses_inquiry")
+}
+
+model listing_reports {
+  report_id     Int                           @id @default(autoincrement())
+  product_id    Int
+  reporter_id   Int
+  reason        String                        @db.VarChar(150)
+  description   String?                       @db.Text
+  report_status listing_reports_report_status @default(pending)
+  created_at    DateTime                      @default(now()) @db.Timestamp(0)
+  products      products                      @relation(fields: [product_id], references: [product_id], map: "fk_reports_product")
+  users         users                         @relation(fields: [reporter_id], references: [user_id], map: "fk_reports_reporter")
+
+  @@index([product_id], map: "fk_reports_product")
+  @@index([reporter_id], map: "fk_reports_reporter")
+}
+
+model moderation_actions {
+  action_id                                Int       @id @default(autoincrement())
+  admin_id                                 Int
+  product_id                               Int?
+  user_id                                  Int?
+  action_type                              String    @db.VarChar(100)
+  reason                                   String?   @db.Text
+  created_at                               DateTime  @default(now()) @db.Timestamp(0)
+  users_moderation_actions_admin_idTousers users     @relation("moderation_actions_admin_idTousers", fields: [admin_id], references: [user_id], map: "fk_moderation_admin")
+  products                                 products? @relation(fields: [product_id], references: [product_id], onDelete: Restrict, map: "fk_moderation_product")
+  users_moderation_actions_user_idTousers  users?    @relation("moderation_actions_user_idTousers", fields: [user_id], references: [user_id], onDelete: Restrict, map: "fk_moderation_user")
+
+  @@index([admin_id], map: "fk_moderation_admin")
+  @@index([product_id], map: "fk_moderation_product")
+  @@index([user_id], map: "fk_moderation_user")
+}
+
+model product_images {
+  image_id    Int      @id @default(autoincrement())
+  product_id  Int
+  image_url   String   @db.VarChar(500)
+  uploaded_at DateTime @default(now()) @db.Timestamp(0)
+  products    products @relation(fields: [product_id], references: [product_id], onDelete: Cascade, map: "fk_images_product")
+
+  @@index([product_id], map: "fk_images_product")
+}
+
+model products {
+  product_id          Int                          @id @default(autoincrement())
+  farmer_id           Int
+  category_id         Int
+  village_id          Int
+  product_name        String                       @db.VarChar(150)
+  description         String?                      @db.Text
+  price               Decimal                      @db.Decimal(12, 2)
+  unit_of_measurement String                       @db.VarChar(50)
+  available_quantity  Decimal                      @default(0.00) @db.Decimal(12, 2)
+  availability_status products_availability_status @default(available)
+  created_at          DateTime                     @default(now()) @db.Timestamp(0)
+  updated_at          DateTime                     @default(now()) @db.Timestamp(0)
+  archived_at         DateTime?                    @db.Timestamp(0)
+  inquiries           inquiries[]
+  listing_reports     listing_reports[]
+  moderation_actions  moderation_actions[]
+  product_images      product_images[]
+  categories          categories                   @relation(fields: [category_id], references: [category_id], map: "fk_products_category")
+  farmer_profiles     farmer_profiles              @relation(fields: [farmer_id], references: [farmer_id], map: "fk_products_farmer")
+  villages            villages                     @relation(fields: [village_id], references: [village_id], map: "fk_products_village")
+
+  @@index([category_id], map: "fk_products_category")
+  @@index([farmer_id], map: "fk_products_farmer")
+  @@index([village_id], map: "fk_products_village")
+  @@index([product_name], map: "idx_product_name")
+  @@index([availability_status], map: "idx_product_status")
+}
+
+model revoked_tokens {
+  jti_hash   String   @id @db.Char(64)
+  user_id    Int
+  expires_at DateTime @db.DateTime(0)
+  created_at DateTime @default(now()) @db.Timestamp(0)
+  users      users    @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: Restrict, map: "fk_revoked_tokens_user")
+
+  @@index([user_id], map: "fk_revoked_tokens_user")
+  @@index([expires_at], map: "idx_revoked_tokens_expiry")
+}
+
+model roles {
+  role_id     Int     @id @default(autoincrement())
+  role_name   String  @unique(map: "role_name") @db.VarChar(50)
+  description String? @db.Text
+  users       users[]
+}
+
+model sectors {
+  sector_id   Int       @id @default(autoincrement())
+  district_id Int
+  sector_name String    @db.VarChar(100)
+  cells       cells[]
+  districts   districts @relation(fields: [district_id], references: [district_id], map: "fk_sectors_districts")
+
+  @@unique([district_id, sector_name], map: "district_id")
+}
+
+model users {
+  user_id                                               Int                  @id @default(autoincrement())
+  role_id                                               Int
+  full_name                                             String               @db.VarChar(150)
+  email                                                 String               @unique(map: "email") @db.VarChar(150)
+  phone_number                                          String?              @unique(map: "phone_number") @db.VarChar(20)
+  profile_picture_url                                   String?              @db.VarChar(500)
+  password_hash                                         String               @db.VarChar(255)
+  account_status                                        users_account_status @default(active)
+  token_version                                         Int                  @default(0) @db.UnsignedInt
+  must_change_password                                  Boolean              @default(false)
+  created_at                                            DateTime             @default(now()) @db.Timestamp(0)
+  updated_at                                            DateTime             @default(now()) @db.Timestamp(0)
+  buyer_profiles                                        buyer_profiles?
+  farmer_profiles                                       farmer_profiles?
+  inquiries                                             inquiries[]
+  listing_reports                                       listing_reports[]
+  moderation_actions_moderation_actions_admin_idTousers moderation_actions[] @relation("moderation_actions_admin_idTousers")
+  moderation_actions_moderation_actions_user_idTousers  moderation_actions[] @relation("moderation_actions_user_idTousers")
+  revoked_tokens                                        revoked_tokens[]
+  roles                                                 roles                @relation(fields: [role_id], references: [role_id], map: "fk_users_roles")
+
+  @@index([role_id], map: "fk_users_roles")
+}
+
+model villages {
+  village_id      Int               @id @default(autoincrement())
+  cell_id         Int
+  village_name    String            @db.VarChar(100)
+  farmer_profiles farmer_profiles[]
+  products        products[]
+  cells           cells             @relation(fields: [cell_id], references: [cell_id], map: "fk_villages_cells")
+
+  @@unique([cell_id, village_name], map: "cell_id")
+}
+
+enum inquiry_responses_response_type {
+  accepted
+  rejected
+  message
+}
+
+enum inquiries_inquiry_status {
+  pending
+  accepted
+  rejected
+  closed
+}
+
+enum listing_reports_report_status {
+  pending
+  reviewed
+  resolved
+  dismissed
+}
+
+enum users_account_status {
+  active
+  suspended
+  inactive
+}
+
+enum products_availability_status {
+  available
+  unavailable
+}
