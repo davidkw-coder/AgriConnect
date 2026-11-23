@@ -8,6 +8,7 @@ const router = express.Router();
 router.use(authenticate, authorizeRoles('FARMER'));
 
 router.get('/dashboard', farmer.dashboard);
+router.post('/profile', farmer.createProfile);
 router.get('/profile', farmer.getProfile);
 router.patch('/profile', farmer.updateProfile);
 router.put('/profile/picture', uploadImage, farmer.updateProfilePicture);
@@ -15,6 +16,7 @@ router.put('/profile/picture', uploadImage, farmer.updateProfilePicture);
 router.get('/categories', farmer.categories);
 router.get('/products', farmer.listProducts);
 router.post('/products', uploadImage, farmer.createProduct);
+router.post('/products/bulk', farmer.createProducts);
 router.get('/products/:productId', farmer.getProduct);
 router.put('/products/:productId', uploadImage, farmer.updateProduct);
 router.patch('/products/:productId/stock', farmer.updateStock);

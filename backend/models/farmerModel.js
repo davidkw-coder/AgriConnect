@@ -31,6 +31,30 @@ async function getProfile(userId) {
   return mapProfile(profile);
 }
 
+async function createProfile(userId, { district, generalLocation, farmDescription }) {
+  await prisma.$transaction(async (tx) => {
+    const user = await tx.users.findUnique({
+      where: { user_id: Number(userId) },
+      select: { roles: { select: { role_name: true } } },
+    });
+    if (!user || user.roles.role_name !== 'farmer') {
+      throw Object.assign(new Error('Farmer account not found'), { status: 404 });
+    }
+    const existing = await tx.farmer_profiles.findUnique({ where: { user_id: Number(userId) }, select: { farmer_id: true } });
+    if (existing) throw Object.assign(new Error('Farmer profile already exists'), { status: 409 });
+    const villageId = await findVillage(tx, district, generalLocation);
+    if (!villageId) throw Object.assign(new Error('Location must match a configured district and village'), { status: 400 });
+    await tx.farmer_profiles.create({
+      data: {
+        user_id: Number(userId),
+        village_id: villageId,
+        farm_description: farmDescription || null,
+      },
+    });
+  }, { isolationLevel: 'Serializable' });
+  return getProfile(userId);
+}
+
 async function findVillage(client, district, village) {
   const record = await client.villages.findFirst({
     where: { village_name: village, cells: { sectors: { districts: { district_name: district } } } },
@@ -210,6 +234,41 @@ async function createProduct(userId, data, imageUrl) {
   return getProduct(userId, id);
 }
 
+async function createProducts(userId, products) {
+  const productIds = await prisma.$transaction(async (tx) => {
+    const farmer = await getFarmerId(userId, tx);
+    if (!farmer) throw Object.assign(new Error('Farmer profile not found'), { status: 404 });
+    const ids = [];
+    for (let index = 0; index < products.length; index += 1) {
+      const data = products[index];
+      const category = await tx.categories.findUnique({ where: { category_id: data.categoryId }, select: { category_id: true } });
+      if (!category) throw Object.assign(new Error(`products[${index}]: Product category not found`), { status: 400 });
+      const villageId = data.generalLocation
+        ? await findVillage(tx, data.district || '', data.generalLocation)
+        : farmer.villageId;
+      if (!villageId) throw Object.assign(new Error(`products[${index}]: Product location must match a configured district and village`), { status: 400 });
+      const status = Number(data.quantity) <= 0 ? 'unavailable' : (data.availabilityStatus || 'available');
+      const product = await tx.products.create({
+        data: {
+          farmer_id: farmer.id,
+          category_id: data.categoryId,
+          village_id: villageId,
+          product_name: data.name.trim(),
+          description: data.description || null,
+          price: data.price,
+          unit_of_measurement: data.unit,
+          available_quantity: data.quantity,
+          availability_status: status,
+        },
+        select: { product_id: true },
+      });
+      ids.push(product.product_id);
+    }
+    return ids;
+  }, { isolationLevel: 'Serializable' });
+  return Promise.all(productIds.map((id) => getProduct(userId, id)));
+}
+
 async function updateProduct(userId, productId, data, imageUrl) {
   const farmer = await getFarmerId(userId);
   if (!farmer) return null;
@@ -349,7 +408,7 @@ async function respondToInquiry(userId, inquiryId, action, message) {
 }
 
 module.exports = {
-  getProfile, updateProfile, getDashboard, listCategories, getFarmerId, findVillage,
-  listProducts, getProduct, createProduct, updateProduct, updateStock, archiveProduct,
+  getProfile, createProfile, updateProfile, getDashboard, listCategories, getFarmerId, findVillage,
+  listProducts, getProduct, createProduct, createProducts, updateProduct, updateStock, archiveProduct,
   listInquiries, getInquiry, respondToInquiry,
 };

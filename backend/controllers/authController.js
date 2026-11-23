@@ -136,4 +136,66 @@ const me = asyncHandler(async (req, res) => {
   return res.json({ success: true, data: { user: publicUser(user) } });
 });
 
-module.exports = { register: registerSelectedRole, registerFarmer: register('FARMER'), registerBuyer: register('BUYER'), login, logout, changePassword, me };
+const updateMyProfile = asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const allowedFields = new Set(['fullName', 'email', 'phone']);
+  const suppliedFields = Object.keys(body);
+  if (suppliedFields.some((field) => !allowedFields.has(field))) {
+    return res.status(400).json({ success: false, message: 'Only fullName, email, and phone can be updated here' });
+  }
+  const data = {};
+  if (body.fullName !== undefined) {
+    if (typeof body.fullName !== 'string' || !NAME_PATTERN.test(body.fullName.trim())) {
+      return res.status(400).json({ success: false, message: 'Full name is invalid' });
+    }
+    data.fullName = body.fullName.trim();
+  }
+  if (body.email !== undefined) {
+    if (typeof body.email !== 'string' || !EMAIL_PATTERN.test(body.email.trim()) || body.email.trim().length > 150) {
+      return res.status(400).json({ success: false, message: 'A valid email address of at most 150 characters is required' });
+    }
+    data.email = body.email.trim().toLowerCase();
+  }
+  if (body.phone !== undefined) {
+    if (typeof body.phone !== 'string' || !PHONE_PATTERN.test(body.phone.replace(/[\s()-]/g, ''))) {
+      return res.status(400).json({ success: false, message: 'Enter a valid Rwanda phone number' });
+    }
+    const compact = body.phone.replace(/[\s()-]/g, '');
+    data.phone = compact.startsWith('07') ? `+250${compact.slice(1)}` : (compact.startsWith('250') ? `+${compact}` : compact);
+  }
+  if (!Object.keys(data).length) {
+    return res.status(400).json({ success: false, message: 'Provide at least one profile field to update' });
+  }
+  try {
+    const user = await userModel.updateProfile(req.user.id, data);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    return res.json({ success: true, message: 'Profile updated successfully', data: { user: publicUser(user) } });
+  } catch (error) {
+    if (error.code === 'P2002' || error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ success: false, message: 'Email or phone is already in use' });
+    }
+    throw error;
+  }
+});
+
+const getAccountById = asyncHandler(async (req, res) => {
+  const id = Number(req.params.userId);
+  if (!Number.isSafeInteger(id) || id < 1) {
+    return res.status(400).json({ success: false, message: 'A valid user ID is required' });
+  }
+  const user = await userModel.findPublicById(id);
+  if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+  return res.json({ success: true, data: { user: publicUser(user) } });
+});
+
+module.exports = {
+  register: registerSelectedRole,
+  registerFarmer: register('FARMER'),
+  registerBuyer: register('BUYER'),
+  login,
+  logout,
+  changePassword,
+  me,
+  updateMyProfile,
+  getAccountById,
+};

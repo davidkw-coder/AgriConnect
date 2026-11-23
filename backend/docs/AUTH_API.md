@@ -76,6 +76,40 @@ Content-Type: application/json
 
 Password changes increment the account token version, invalidating previously issued tokens. Log in again to obtain a new token.
 
+## Read and update a profile
+
+Every authenticated role can retrieve its own profile:
+
+```http
+GET /api/auth/me
+Authorization: Bearer <token>
+```
+
+An account owner can also retrieve their profile by ID. An administrator may retrieve any user's profile:
+
+```http
+GET /api/auth/users/USER_ID
+Authorization: Bearer <token>
+```
+
+All roles can update their own name, email, and phone. The route does not accept a user ID, role, or account status, so it cannot be used to edit another account or elevate privileges:
+
+```http
+PATCH /api/auth/me
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+```json
+{
+  "fullName": "Aline Uwimana",
+  "email": "aline.updated@example.com",
+  "phone": "+250788123456"
+}
+```
+
+At least one permitted field is required. The API validates names, email, and Rwanda phone numbers, normalizes email and phone, and returns HTTP 409 if another account already uses the email or phone. Farmers can additionally update farm description and location through `PATCH /api/farmer/profile`.
+
 ## Logout
 
 ```http

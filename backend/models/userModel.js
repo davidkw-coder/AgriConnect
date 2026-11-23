@@ -75,6 +75,29 @@ async function findByIdWithPassword(id) {
   return user ? { id: user.user_id, email: user.email, passwordHash: user.password_hash } : null;
 }
 
+async function updateProfile(id, data) {
+  const userId = Number(id);
+  const updated = await prisma.$transaction(async (tx) => {
+    const existing = await tx.users.findUnique({
+      where: { user_id: userId },
+      select: { user_id: true, roles: { select: { role_name: true } } },
+    });
+    if (!existing) return false;
+
+    const userData = {};
+    if (data.fullName !== undefined) userData.full_name = data.fullName;
+    if (data.email !== undefined) userData.email = data.email;
+    if (data.phone !== undefined) userData.phone_number = data.phone;
+    if (Object.keys(userData).length) await tx.users.update({ where: { user_id: userId }, data: userData });
+
+    if (data.phone !== undefined && existing.roles.role_name === 'buyer') {
+      await tx.buyer_profiles.updateMany({ where: { user_id: userId }, data: { telephone_number: data.phone } });
+    }
+    return true;
+  });
+  return updated ? findPublicById(userId) : null;
+}
+
 async function create({ fullName, email, phone, passwordHash, role, district, generalLocation, mustChangePassword = true }) {
   const userId = await prisma.$transaction(async (tx) => {
     const roleRow = await tx.roles.findFirst({ where: { role_name: role.toLowerCase() }, select: { role_id: true } });
@@ -125,4 +148,4 @@ async function changePassword(id, passwordHash) {
   });
 }
 
-module.exports = { findByEmail, findPublicById, findByIdWithPassword, create, changePassword };
+module.exports = { findByEmail, findPublicById, findByIdWithPassword, updateProfile, create, changePassword };
