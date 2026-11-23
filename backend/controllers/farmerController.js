@@ -69,6 +69,28 @@ const getProfile = asyncHandler(async (req, res) => {
   return res.json({ success: true, data: { profile } });
 });
 
+const createProfile = asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  if (typeof body.district !== 'string' || !body.district.trim() || body.district.trim().length > 100
+      || typeof body.generalLocation !== 'string' || !body.generalLocation.trim() || body.generalLocation.trim().length > 100) {
+    return res.status(400).json({ success: false, message: 'district and generalLocation are required and must be at most 100 characters' });
+  }
+  if (body.farmDescription !== undefined && (typeof body.farmDescription !== 'string' || body.farmDescription.length > 5000)) {
+    return res.status(400).json({ success: false, message: 'farmDescription must be a string of at most 5000 characters' });
+  }
+  try {
+    const profile = await farmerModel.createProfile(req.user.id, {
+      district: body.district.trim(),
+      generalLocation: body.generalLocation.trim(),
+      farmDescription: body.farmDescription?.trim(),
+    });
+    return res.status(201).json({ success: true, message: 'Farmer profile created successfully', data: { profile } });
+  } catch (error) {
+    if (error.code === 'P2002') return res.status(409).json({ success: false, message: 'Farmer profile already exists' });
+    throw error;
+  }
+});
+
 const updateProfile = asyncHandler(async (req, res) => {
   const body = req.body || {};
   const data = {};
@@ -97,7 +119,7 @@ const updateProfile = asyncHandler(async (req, res) => {
     if (!profile) return res.status(404).json({ success: false, message: 'Farmer profile not found' });
     return res.json({ success: true, message: 'Profile updated successfully', data: { profile } });
   } catch (error) {
-    if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ success: false, message: 'Email or phone is already in use' });
+    if (error.code === 'ER_DUP_ENTRY' || error.code === 'P2002') return res.status(409).json({ success: false, message: 'Email or phone is already in use' });
     throw error;
   }
 });
@@ -151,6 +173,26 @@ const createProduct = asyncHandler(async (req, res) => {
     await removeUploadedImage(imageUrl);
     throw error;
   }
+});
+
+const createProducts = asyncHandler(async (req, res) => {
+  const products = req.body?.products;
+  if (!Array.isArray(products) || products.length < 1 || products.length > 50) {
+    return res.status(400).json({ success: false, message: 'products must be an array containing 1 to 50 products' });
+  }
+  const validated = products.map((product, index) => {
+    try {
+      return validateProduct(product || {});
+    } catch (error) {
+      throw Object.assign(new Error(`products[${index}]: ${error.message}`), { status: 400 });
+    }
+  });
+  const created = await farmerModel.createProducts(req.user.id, validated);
+  return res.status(201).json({
+    success: true,
+    message: `${created.length} products created successfully`,
+    data: { products: created, total: created.length },
+  });
 });
 
 const updateProduct = asyncHandler(async (req, res) => {
@@ -222,7 +264,7 @@ const respondToInquiry = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  dashboard, getProfile, updateProfile, updateProfilePicture, categories,
-  listProducts, getProduct, createProduct, updateProduct, updateStock, archiveProduct,
+  dashboard, getProfile, createProfile, updateProfile, updateProfilePicture, categories,
+  listProducts, getProduct, createProduct, createProducts, updateProduct, updateStock, archiveProduct,
   listInquiries, getInquiry, respondToInquiry,
 };
